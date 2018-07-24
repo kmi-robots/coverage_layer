@@ -1,0 +1,5 @@
+<library path="lib/libcoverage_layer">
+  <class type="coverage_layer::CoverageLayer" base_class_type="costmap_2d::Layer">
+    <description>TODO</description>
+  </class>
+</library>
