@@ -1,0 +1,6 @@
+<launch>
+   <node name="coverage_node" pkg="coverage_layer" type="coverage_node" output="screen">
+    <rosparam file="$(find coverage_layer)/params/costmap_common_params.yaml" command="load" ns="global_costmap" />
+    <rosparam file="$(find coverage_layer)/params/global_costmap_params.yaml" command="load" />
+   </node>
+</launch>

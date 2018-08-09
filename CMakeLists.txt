@@ -6,6 +6,8 @@ find_package(catkin REQUIRED COMPONENTS
   pluginlib
   roscpp
   tf
+  costmap_2d
+  std_srvs
 )
 
 catkin_package()
@@ -25,3 +27,6 @@ install(TARGETS coverage_layer
 install(FILES costmap_plugins.xml
     DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
+
+add_executable(coverage_node src/coverage_node.cpp src/coverage.cpp)
+target_link_libraries(coverage_node ${catkin_LIBRARIES} ${PROJECT_NAME})

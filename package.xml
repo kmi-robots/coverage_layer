@@ -12,12 +12,16 @@
   <build_depend>pluginlib</build_depend>
   <build_depend>roscpp</build_depend>
   <build_depend>tf</build_depend>
+  <build_depend>costmap_2d</build_depend>
+  <build_depend>std_srvs</build_depend>
   <build_export_depend>pluginlib</build_export_depend>
   <build_export_depend>roscpp</build_export_depend>
   <build_export_depend>tf</build_export_depend>
   <exec_depend>pluginlib</exec_depend>
   <exec_depend>roscpp</exec_depend>
   <exec_depend>tf</exec_depend>
+  <exec_depend>costmap_2d</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
 
   <export>
       <costmap_2d plugin="${prefix}/costmap_plugins.xml"/>
