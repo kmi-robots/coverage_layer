@@ -6,6 +6,7 @@
 #include "costmap_2d/layered_costmap.h"
 #include "costmap_2d/GenericPluginConfig.h"
 #include "dynamic_reconfigure/server.h"
+#include "tree/tree.hh"
 
 using costmap_2d::FREE_SPACE;
 using costmap_2d::LETHAL_OBSTACLE;
@@ -26,17 +27,38 @@ class CoverageLayer : public costmap_2d::CostmapLayer {
         virtual void deactivate();
         virtual void reset();
 
-        std::set<unsigned int> generateBestViews(double x1, double y1, double x2, double y2);
-    public:
-        unsigned int x1_, x2_, y1_, y2_;
+        std::set<unsigned int> generateBestViews(std::vector<std::pair<double, double>> area);
     private:
-        std::function<int () > randX_;
-        std::function<int () > randY_;
-        void reconfigureCB(costmap_2d::GenericPluginConfig &config, uint32_t level);
-        dynamic_reconfigure::Server<costmap_2d::GenericPluginConfig> *dsrv_;
-//      params        
+        std::vector<double> checkViews(double x, double y);
+        bool cover(double x, double y, double th);
+        double rotate(double angle, double rotation);
+        
+        std::function<double () > randTh_;
         double coverage_limit_, range_, theta_;
-        int k_max_, v_max_, view_threshold_;
+        int k_max_, v_max_, view_threshold_, cells_in_view_;
+        std::set<unsigned int> cell_area_;
+        tree<std::array<double, 3>> views_;
+        
+        dynamic_reconfigure::Server<costmap_2d::GenericPluginConfig> *dsrv_;
+        void reconfigureCB(costmap_2d::GenericPluginConfig &config, uint32_t level);
+        
+        class ViewCheck {
+        public:
+            ViewCheck(CoverageLayer *cl, int *utility) : cl_(cl), obstacle_(false), utility_(utility) { }
+            inline void operator()(unsigned int offset) {
+                unsigned int x, y;
+                cl_->indexToCells(offset, x, y);
+                if (obstacle_ || cl_->getCost(x, y) == costmap_2d::LETHAL_OBSTACLE) {
+                    obstacle_ = true;
+                } else {
+                    *utility_++;
+                }                
+            }
+        private:
+            CoverageLayer *cl_;
+            bool obstacle_;
+            int *utility_;
+        };
 
         class CellUtility {
             public:
@@ -93,20 +115,14 @@ class CoverageLayer : public costmap_2d::CostmapLayer {
                     cl_->indexToCells(offset, x, y);
                     if (cl_->getCost(x, y) == costmap_2d::LETHAL_OBSTACLE || obstacle_) {
                         obstacle_ = true;
-                        return;
-                    }
-                    if (x > cl_->x1_ && x < cl_->x2_ && y > cl_->y1_ && y < cl_->y2_)
+                    } else {
                         fieldOfView_->insert(offset);
+                    }
                 }
 
                 std::set<unsigned int> getFieldOfView() {
                     return *fieldOfView_;
                 }
-                
-                int fieldOfViewSize() {
-                    return fieldOfView_->size();
-                }
-
             private:
                 std::set<unsigned int> *fieldOfView_;
                 CoverageLayer *cl_;

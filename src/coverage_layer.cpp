@@ -6,7 +6,14 @@ PLUGINLIB_EXPORT_CLASS(coverage_layer::CoverageLayer, costmap_2d::Layer)
 
 namespace coverage_layer {
     
-CoverageLayer::CoverageLayer() {}
+CoverageLayer::CoverageLayer() : views_() {
+    views_ = views_.insert(views_.begin(), { {0.0, 0.0, 0.0} });
+    
+    std::random_device rd;
+    std::default_random_engine generator(rd());
+    std::uniform_real_distribution<double> distribution(0, M_PI*2);
+    randTh_ = std::bind(distribution, generator);
+}
 
 void CoverageLayer::onInitialize() {
     ros::NodeHandle nh("~/" + name_);
@@ -18,6 +25,8 @@ void CoverageLayer::onInitialize() {
     nh.param("range", range_, 5.0);
     nh.param("field_of_view", theta_, 0.87);
     nh.param("view_threshold", view_threshold_, 100);
+    
+    cells_in_view_ = (range_ * theta_)/pow(getResolution(),2);
     
     dsrv_ = new dynamic_reconfigure::Server<costmap_2d::GenericPluginConfig>(nh);
     dynamic_reconfigure::Server<costmap_2d::GenericPluginConfig>::CallbackType cb = 
@@ -35,7 +44,10 @@ void CoverageLayer::reconfigureCB(costmap_2d::GenericPluginConfig &config, uint3
 }
 
 void CoverageLayer::updateBounds(double robot_x, double robot_y, double robot_yaw, double *min_x, double *min_y,
-                                 double *max_x, double *max_y) { }
+                                 double *max_x, double *max_y) {
+    tree<std::array<double, 3>>::iterator robot_position = views_.begin();
+    (*robot_position) = {robot_x, robot_y, robot_yaw};
+}
 
 void CoverageLayer::updateCosts(costmap_2d::Costmap2D &master_grid, int min_i, int min_j, int max_i, int max_j) { }
 
@@ -45,12 +57,71 @@ void CoverageLayer::deactivate() { }
 
 void CoverageLayer::reset() { }
 
-std::set<unsigned int> CoverageLayer::generateBestViews(double wx1, double wy1, double wx2, double wy2) {  
-    worldToMap(wx1, wy1, x1_, y1_);
-    worldToMap(wx2, wy2, x2_, y2_);
+std::set<unsigned int> CoverageLayer::generateBestViews(std::vector<std::pair<double, double>> area) {
     
-    if(x1_ == x2_ || y1_ == y2_) { throw std::invalid_argument("null area"); }
-    if(x1_ > x2_ || y1_ > y2_) { throw std::invalid_argument("wrong diagonal"); }
+    std::vector<costmap_2d::MapLocation> cell_border;
+    for(auto const & p : area) {
+        costmap_2d::MapLocation ml;
+        worldToMap(p.first, p.second, ml.x, ml.y);
+        cell_border.push_back(ml);
+    }
+    std::vector<costmap_2d::MapLocation> cell_area;
+    convexFillCells(cell_border, cell_area);
+    
+    int viewArea = 0;
+    for(auto const & ca : cell_area) {
+        if(getCost(ca.x, ca.y) == costmap_2d::FREE_SPACE) {
+            cell_area_.insert(getIndex(ca.x, ca.y));
+            viewArea++;
+        }
+    }
+    
+    tree<std::array<double, 3>>::iterator tr = views_.begin();
+    
+    std::array<double, 3> pos = *tr;
+    cover(pos[0], pos[1], pos[2]);
+    
+    std::vector<double> orientations = checkViews(pos[0], pos[1]);
+    for(auto const & o : orientations) {
+        if(cover(pos[0], pos[1], o)) {
+            views_.append_child(tr, { {pos[0], pos[1], o} });
+        }
+    }
+    
+    for(tree<std::array<double, 3>>::sibling_iterator it = views_.begin(tr); it != views_.end(tr); it++) {
+        std::cout<<"depth: "<<views_.depth(it)<<" value: "<<(*it)[0]<<std::endl;
+    }
+    
+    {
+    
+//     unsigned int current_x, current_y;
+//     worldToMap(robot_position_[0], robot_position_[1], current_x, current_y);
+//     double current_yaw_ = rotate(robot_position_[2], theta_/2);
+    
+//     std::set<unsigned int> *fieldOfView = new std::set<unsigned int>();
+//     SensorUtility st(this, fieldOfView);
+//     for(int k = 0; k < 80; k++) {
+//         th = th + theta_/80;
+//         double pwx, pwy;
+//         pwx = wx + range_ * cos(th);
+//         pwy = wy + range_ * sin(th);
+//         unsigned int px, py;
+//         worldToMap(pwx, pwy, px, py);
+//         raytraceLine(st, x, y, px, py);
+//     }
+    
+    /*
+    if(st.fieldOfViewSize() > view_threshold_) {
+        minimalViews.insert(element);
+        setOfViews[element] = st.getFieldOfView();
+        for(auto const & sow: setOfViews[element]) {
+            totalView[sow] = totalView[sow] + 1;
+        }
+    }
+    
+    delete fieldOfView;
+    
+    
         
     std::map<unsigned int, int> *utilMap = new std::map<unsigned int, int>();
     
@@ -109,7 +180,6 @@ std::set<unsigned int> CoverageLayer::generateBestViews(double wx1, double wy1, 
         indexToCells(element, x, y);
         mapToWorld(x, y, wx, wy);
         double th = distribution(generator);
-        
         std::set<unsigned int> *fieldOfView = new std::set<unsigned int>();
         SensorUtility st(this, fieldOfView);
         
@@ -155,7 +225,88 @@ std::set<unsigned int> CoverageLayer::generateBestViews(double wx1, double wy1, 
         coverage.insert(tv.first);
     }
 //     return coverage;
-    return minimalViews;
+    return minimalViews;*/
+}
+}
+
+bool CoverageLayer::cover(double x, double y, double th) {
+    std::set<unsigned int> *fieldOfView = new std::set<unsigned int>();
+    SensorUtility st(this, fieldOfView);
+    th = rotate(th, theta_/2);
+
+    for(int k = 0; k < 80; k++) {
+        th = rotate(th, -theta_/80);
+        double pwx, pwy;
+        pwx = x + range_ * cos(th);
+        pwy = y + range_ * sin(th);
+        unsigned int px, py;
+        worldToMap(pwx, pwy, px, py);
+        raytraceLine(st, x, y, px, py);
+    }
+    
+    std::set<unsigned int> v;
+    if(fieldOfView->size() > cells_in_view_ * 0.5) {
+        std::set_intersection(fieldOfView->begin(), fieldOfView->end(), 
+                              cell_area_.begin(), cell_area_.end(), 
+                              std::inserter(v, v.begin()));
+        if(v.size() > cells_in_view_ * 0.5) {
+            std::set<unsigned int> diff;
+            std::set_difference(cell_area_.begin(), cell_area_.end(), 
+                                v.begin(), v.end(), 
+                                std::inserter(diff, diff.begin()));
+            cell_area_ = diff;
+            
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+std::vector<double> CoverageLayer::checkViews(double x, double y) {
+    unsigned int cx, cy;
+    std::vector<std::pair<int, double>> tmpr;
+    std::vector<double> result;
+    double threshold = (range_/sqrt(2)*getResolution())*2;
+    worldToMap(x, y, cx, cy);
+    for(int i = 0; i < (M_PI/theta_) * 2; i++) {
+        double th = randTh_();
+        int *utility = new int;
+        ViewCheck vc(this, utility);
+        
+        for(int k = 0; k < 3; k++) {
+            double pwx, pwy;
+            pwx = x + range_ * cos(rotate(th, theta_*k/2));
+            pwy = y + range_ * sin(rotate(th, theta_*k/2));
+            unsigned int px, py;
+            worldToMap(pwx, pwy, px, py);
+            raytraceLine(vc, cx, cy, px, py);
+        }
+        
+        if(*utility > threshold) {
+            tmpr.push_back(std::make_pair(*utility, th));
+        }
+        
+        delete utility;
+    }
+    
+    sort(tmpr.begin(), tmpr.end());
+    for(auto const & r: tmpr) {
+        result.push_back(r.first);
+    }
+    
+    return result;
+}
+
+double CoverageLayer::rotate(double angle, double rotation) {
+    angle = std::fmod(angle, M_PI*2);
+    if(angle < 0) angle = angle + M_PI*2;
+    rotation = std::fmod(rotation, M_PI*2);
+    
+    double result = angle + rotation;
+    if(result < 0) result = result + M_PI*2;
+    
+    return result;
 }
 
 }

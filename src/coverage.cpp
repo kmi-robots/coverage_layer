@@ -12,11 +12,6 @@ Coverage::Coverage(tf::TransformListener &tf) : tf_(tf), costmap_ros_(NULL) {
     costmap_ros_ = new costmap_2d::Costmap2DROS("global_costmap", tf_);
     costmap_ros_->start();
     ROS_INFO_STREAM("Ready");
-
-//     3, 9
-//     9, 9
-//     3, 5
-//     9, 5
 }
 
 bool Coverage::doSomething(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res) {
@@ -33,7 +28,13 @@ bool Coverage::doSomething(std_srvs::Empty::Request &req, std_srvs::Empty::Respo
             boost::shared_ptr<coverage_layer::CoverageLayer> l =
                 boost::static_pointer_cast<coverage_layer::CoverageLayer>(plugin);
 //             result = l->generateBestViews(3.0, 5.0, 9.0, 9.0);
-                result = l->generateBestViews(0.5, 0.5, 9.5, 9.5);
+                std::vector<std::pair<double, double>> area = {
+                    std::make_pair(0.5, 0.5),
+                    std::make_pair(0.5, 9.5),
+                    std::make_pair(9.5, 9.5),
+                    std::make_pair(9.5, 0.5)
+                };
+                result = l->generateBestViews(area);
         }
     }
 
